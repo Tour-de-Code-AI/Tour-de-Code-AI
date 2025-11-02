@@ -591,3 +591,51 @@ if (codeTourExtension) {
   });
 }
 ```
+
+---
+
+## 📜 License & Attribution
+
+### MIT License
+
+This project is licensed under the MIT License - see the [LICENSE.txt](LICENSE.txt) file for details.
+
+### Original Work
+
+**CodeTour AI** is built upon the excellent [CodeTour extension](https://github.com/microsoft/codetour) by Microsoft Corporation, which is also licensed under the MIT License.
+
+- **Original Project**: [microsoft/codetour](https://github.com/microsoft/codetour)
+- **Original Copyright**: Copyright (c) Microsoft Corporation
+- **Original License**: MIT License
+
+### AI Enhancements
+
+The AI-powered tour generation features, including TreeSitter AST analysis, multi-provider LLM integration, concurrent batch processing, and smart filtering are original contributions to this project.
+
+- **AI Features Copyright**: Copyright (c) 2024-2025 Saurabh Yergattikar
+- **License**: MIT License (same as original)
+
+### Acknowledgments
+
+Special thanks to:
+- 🙏 **Microsoft** and the original CodeTour team for creating the foundational extension
+- 🌳 **TreeSitter** project for the powerful AST parsing capabilities
+- 🤖 **OpenAI** and **Anthropic** for their LLM APIs that power the tour generation
+
+---
+
+## 🤝 Contributing
+
+This is a free and open-source project. Contributions are welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+
+---
+
+## 🔗 Links
+
+- **Repository**: [github.com/saurabh-yergattikar/codetour_ai](https://github.com/saurabh-yergattikar/codetour_ai)
+- **Issues**: [Report a bug or request a feature](https://github.com/saurabh-yergattikar/codetour_ai/issues)
+- **Original CodeTour**: [microsoft/codetour](https://github.com/microsoft/codetour)
+
+---
+
+**Made with ❤️ for the developer community. Free and open source forever.**
