@@ -386,7 +386,7 @@ export function registerRecorderCommands() {
         .getConfiguration("codetour")
         .get("recordMode");
 
-      if (mode === "pattern") {
+      if (mode === "pattern" && thread.range) {
         const fileEditors = vscode.window.visibleTextEditors.filter(
           editor => editor.document && editor.document.uri.scheme === "file"
         );
@@ -409,7 +409,7 @@ export function registerRecorderCommands() {
           // TODO: Try to get smarter about how to handle this.
           step.line = thread.range.start.line + 1;
         }
-      } else {
+      } else if (thread.range) {
         step.line = thread.range.start.line + 1;
       }
 
@@ -715,8 +715,8 @@ export function registerRecorderCommands() {
     async (node: CodeTourNode) => {
       const workspaceRoot =
         store.activeTour &&
-        store.activeTour.tour.id === node.tour.id &&
-        store.activeTour.workspaceRoot
+          store.activeTour.tour.id === node.tour.id &&
+          store.activeTour.workspaceRoot
           ? store.activeTour.workspaceRoot
           : workspace.getWorkspaceFolder(vscode.Uri.parse(node.tour.id))?.uri;
 

@@ -1,9 +1,9 @@
 {
   "name": "codetour-ai",
   "displayName": "CodeTour AI",
-  "description": "Enterprise-grade VS Code extension for AI-powered code tours using TreeSitter AST analysis and LLMs. Accelerate onboarding from weeks to hours.",
+  "description": "AI-powered code tours using Repomix analysis and LLMs. Generate comprehensive, narrative-driven codebase tours with mental model flow. Accelerate onboarding from weeks to hours.",
   "publisher": "saurabh-yergattikar",
-  "version": "1.0.10",
+  "version": "1.0.0",
   "author": {
     "name": "Saurabh Yergattikar"
   },
@@ -93,8 +93,8 @@
         },
         "codetour.autoGenerate.maxFilesToAnalyze": {
           "type": "number",
-          "default": 0,
-          "description": "Maximum number of source files to analyze with TreeSitter AST (0 = unlimited, analyzes entire codebase). Test files, node_modules, build artifacts, and configs are automatically excluded."
+          "default": 15,
+          "description": "Maximum number of source files to analyze with TreeSitter AST. The extension intelligently selects the TOP 15 most important files (entry points, core modules, high-complexity code) to avoid rate limits and generate focused tours. Like Cline - quality over quantity! Default: 15."
         },
         "codetour.autoGenerate.includeFileTypes": {
           "type": "array",

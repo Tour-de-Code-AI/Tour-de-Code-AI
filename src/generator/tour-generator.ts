@@ -3,9 +3,8 @@
 
 import * as vscode from "vscode";
 import { CodeTour, CodeTourStep } from "../store";
-import { AnalysisLogger } from "./analysis-logger";
 import { BatchTourGenerator } from "./batch-generator";
-import { FileAnalysis, ProjectStructure, TreeSitterAnalyzer } from "./treesitter-analyzer";
+import { RepomixService } from "../repomix";
 
 export interface TourGenerationOptions {
     workspaceRoot: vscode.Uri;
@@ -27,10 +26,8 @@ export interface GeneratedTourStep {
 }
 
 export class TourGenerator {
-    private analyzer: TreeSitterAnalyzer;
-
     constructor(extensionPath: string) {
-        this.analyzer = new TreeSitterAnalyzer(extensionPath);
+        // No TreeSitter needed anymore! Repomix handles everything.
     }
 
     async generateTour(options: TourGenerationOptions): Promise<CodeTour> {
@@ -45,88 +42,63 @@ export class TourGenerator {
             },
             async (progress, token) => {
                 try {
-                    // Create analysis logger for evidence
-                    const logger = new AnalysisLogger(options.workspaceRoot.fsPath);
-                    this.analyzer.setLogger(logger);
+                    // Step 1: Generate Repomix summary (in-memory only!)
+                    progress.report({ message: "📦 Analyzing codebase with Repomix (1/4)...", increment: 0 });
+                    console.log("🚀 Step 1: Generating Repomix codebase summary (NO TreeSitter needed!)...");
+                    const repomixService = new RepomixService(options.workspaceRoot.fsPath);
+                    const repomixResult = await repomixService.generateSummary((msg, prog) => {
+                        progress.report({ message: `📦 Repomix: ${msg}`, increment: prog ? prog / 20 : undefined });
+                    });
 
-                    // Step 1: Initialize TreeSitter
-                    progress.report({ message: "⚙️ Initializing analyzer (0/6)...", increment: 0 });
-                    console.log("Step 1: Initializing analyzer...");
-                    await this.analyzer.initialize();
-                    console.log("✓ Analyzer initialized");
+                    if (!repomixResult.success) {
+                        throw new Error(`Repomix analysis failed: ${repomixResult.error}`);
+                    }
+
+                    console.log("✓ Repomix analysis complete (NO LLM used for this step!)");
+                    console.log(`   Files analyzed: ${repomixResult.output.totalFiles}`);
+                    console.log(`   Total lines: ${repomixResult.output.totalLines}`);
+                    console.log(`   XML kept in memory (not saved to disk)`);
 
                     if (token.isCancellationRequested) {
                         throw new Error("Tour generation cancelled");
                     }
 
-                    // Step 2: Analyze project structure
-                    progress.report({ message: "📂 Scanning files (1/6)...", increment: 15 });
-                    console.log("Step 2: Analyzing project structure...");
-                    const projectStructure = await this.analyzer.analyzeProject(options.workspaceRoot);
-                    console.log(`✓ Analyzed ${projectStructure.files.length} files`);
+                    // Step 2: Build context for LLM
+                    progress.report({ message: "🔍 Building context for LLM (2/4)...", increment: 25 });
+                    console.log("Step 2: Building project context...");
+                    const projectContext = this.buildProjectContext(options, repomixResult);
+                    console.log("✓ Context built with Repomix data");
 
                     if (token.isCancellationRequested) {
                         throw new Error("Tour generation cancelled");
                     }
 
-                    // Step 3: Generate project context
-                    progress.report({ message: "🔍 Building context (2/4)...", increment: 20 });
-                    console.log("Step 3: Building project context...");
-                    const projectContext = this.buildProjectContext(projectStructure, options);
-                    console.log("✓ Context built");
-
-                    if (token.isCancellationRequested) {
-                        throw new Error("Tour generation cancelled");
-                    }
-
-                    // Step 4: Generate tour steps using MULTI-PASS BATCH GENERATION (NO token limits!)
-                    progress.report({ message: "🚀 Starting multi-pass generation... (3/4)", increment: 30 });
-                    console.log("Step 4: Starting BATCH generation (NO token limits!)...");
+                    // Step 3: Generate tour with LLM (using Repomix data)
+                    progress.report({ message: "🤖 Generating tour with LLM (3/4)...", increment: 40 });
+                    console.log("Step 3: Sending Repomix data to LLM for tour generation...");
                     const batchGenerator = new BatchTourGenerator();
                     const tourSteps = await batchGenerator.generateTourInBatches(
-                        projectStructure,
+                        repomixResult,
                         projectContext,
                         progress
                     );
-                    console.log(`✓ Generated ${tourSteps.length} steps across all batches`);
+                    console.log(`✓ Generated ${tourSteps.length} steps with actual line numbers`);
 
                     if (token.isCancellationRequested) {
                         throw new Error("Tour generation cancelled");
                     }
 
-                    // Step 5: Validate and refine steps
-                    progress.report({ message: "✅ Validating steps (4/4)...", increment: 90 });
-                    console.log("Step 5: Validating steps...");
-                    console.log(`   Before validation: ${tourSteps.length} steps`);
-                    console.log(`   First step title: "${tourSteps[0]?.title || 'None'}"`);
-                    console.log(`   First step file: "${tourSteps[0]?.file || 'None'}"`);
-
-                    const validatedSteps = await this.validateAndRefineSteps(
-                        tourSteps,
-                        projectStructure,
-                        options
-                    );
-
-                    console.log(`✓ After validation: ${validatedSteps.length} steps`);
-                    if (validatedSteps.length > 0) {
-                        console.log(`   First validated step: "${validatedSteps[0]?.title || 'None'}"`);
-                    } else {
-                        console.error(`❌ ERROR: All steps were filtered out during validation!`);
-                    }
-
-                    // Step 6: Create the tour object
-                    progress.report({ message: "💾 Creating tour file...", increment: 95 });
-                    console.log("Step 6: Creating tour...");
+                    // Step 4: Create and save tour
+                    progress.report({ message: "💾 Creating tour file (4/4)...", increment: 85 });
+                    console.log("Step 4: Creating tour...");
+                    const validatedSteps = this.validateSteps(tourSteps, repomixResult);
                     const tour = this.createTour(validatedSteps, options);
-                    console.log(`✓ Tour created: ${tour.title}`);
-
-                    // Save TreeSitter analysis log
-                    const treesitterCount = projectStructure.files.length; // All analyzed with TreeSitter
-                    logger.logSummary(projectStructure.files.length, treesitterCount, 0);
-                    await logger.save();
+                    console.log(`✓ Tour created: ${tour.title} with ${validatedSteps.length} steps`);
 
                     progress.report({ message: "🎉 Complete!", increment: 100 });
                     console.log("🎉 Tour generation complete!");
+                    console.log(`   Total steps: ${validatedSteps.length}`);
+                    console.log(`   Generation method: Repomix → LLM (NO TreeSitter!)`);
                     return tour;
 
                 } catch (error: any) {
@@ -138,88 +110,56 @@ export class TourGenerator {
         );
     }
 
-    private buildProjectContext(structure: ProjectStructure, options: TourGenerationOptions): string {
+    private buildProjectContext(options: TourGenerationOptions, repomixResult: any): string {
         const workspaceName = vscode.workspace.name || "Unknown Project";
-        const fileCount = structure.files.length;
-        const languages = [...new Set(structure.files.map(f => f.language))].join(", ");
 
         let context = `Project: ${workspaceName}\n`;
         context += `Goal: Create a comprehensive, narrative-driven tour that helps developers deeply understand this codebase.\n\n`;
-        context += `Files analyzed: ${fileCount}\n`;
-        context += `Languages: ${languages}\n`;
-
-        if (structure.entryPoints.length > 0) {
-            context += `Entry points (Start Here): ${structure.entryPoints.join(", ")}\n`;
-        }
-
-        // Add architectural overview
-        const directories = new Set(
-            structure.files.map(f => f.file.includes("/") ? f.file.split("/")[0] : "root")
-        );
-        context += `Main modules/directories: ${Array.from(directories).join(", ")}\n\n`;
 
         if (options.tourTitle) {
-            context += `Tour focus: ${options.tourTitle}\n`;
+            context += `Tour Title: ${options.tourTitle}\n`;
         }
         if (options.tourDescription) {
-            context += `Tour description: ${options.tourDescription}\n`;
+            context += `Tour Description: ${options.tourDescription}\n`;
         }
         if (options.focusAreas && options.focusAreas.length > 0) {
-            context += `Focus areas: ${options.focusAreas.join(", ")}\n`;
+            context += `Focus Areas: ${options.focusAreas.join(", ")}\n`;
         }
 
-        context += `\nNote: Files are interconnected. Show how they work together as a cohesive system.\n`;
+        context += `\n📦 REPOMIX ANALYSIS COMPLETE:\n`;
+        context += `Files analyzed: ${repomixResult.output.totalFiles}\n`;
+        context += `Total lines: ${repomixResult.output.totalLines}\n`;
+        context += `Languages: ${Array.from(new Set(repomixResult.output.files.map((f: any) => f.language))).join(", ")}\n\n`;
+
+        context += `🎯 CRITICAL INSTRUCTIONS:\n`;
+        context += `1. The Repomix XML contains ALL code with ACTUAL line numbers (format: "   123|code here")\n`;
+        context += `2. Parse the code yourself - classes, functions, imports are all visible\n`;
+        context += `3. Use EXACT line numbers from the XML when creating tour steps\n`;
+        context += `4. Show how files interconnect as a cohesive system\n`;
+        context += `5. NO TreeSitter AST is provided - you have the raw code with line numbers instead!\n`;
 
         return context;
     }
 
-    // NOTE: Tour generation is now handled by BatchTourGenerator
-    // Old single-pass methods have been removed in favor of multi-pass batch generation
-
-    private async validateAndRefineSteps(
+    private validateSteps(
         steps: GeneratedTourStep[],
-        structure: ProjectStructure,
-        options: TourGenerationOptions
-    ): Promise<CodeTourStep[]> {
+        repomixResult: any
+    ): CodeTourStep[] {
         const validatedSteps: CodeTourStep[] = [];
-        const maxSteps = options.maxSteps || 20;
+        const repomixFiles = new Set(repomixResult.output.files.map((f: any) => f.path));
 
-        for (let i = 0; i < steps.slice(0, maxSteps).length; i++) {
-            const step = steps[i];
+        for (const step of steps) {
             try {
-                // CRITICAL: Skip file validation for the FIRST step (welcome page)
-                // Welcome page might use README.md or other non-source files
-                const isWelcomeStep = i === 0 && step.title?.includes('Welcome');
-
-                if (!isWelcomeStep) {
-                    // Check if file exists in the analyzed structure
-                    const fileExists = structure.files.some(f => f.file === step.file);
-
-                    if (!fileExists) {
-                        // Try to find similar file
-                        const similarFile = this.findSimilarFile(step.file, structure.files);
-                        if (similarFile) {
-                            console.log(`📝 Mapped ${step.file} → ${similarFile}`);
-                            step.file = similarFile;
-                        } else {
-                            console.warn(`⚠️  File not found: ${step.file}, skipping step`);
-                            continue;
-                        }
-                    }
-                } else {
-                    console.log(`🎉 Welcome step detected, skipping file validation`);
+                // Check if file exists in Repomix output
+                if (!repomixFiles.has(step.file)) {
+                    console.warn(`⚠️ File not in Repomix output: ${step.file}, skipping step`);
+                    continue;
                 }
 
-                // Validate line number
-                if (step.line) {
-                    const fileAnalysis = structure.files.find(f => f.file === step.file);
-                    if (fileAnalysis) {
-                        // Make sure line number is reasonable (basic validation)
-                        // In production, you'd read the actual file to validate
-                        if (step.line < 1) {
-                            step.line = 1;
-                        }
-                    }
+                // Basic validation
+                if (!step.title || !step.description) {
+                    console.warn(`⚠️ Invalid step (missing title/description), skipping`);
+                    continue;
                 }
 
                 // Convert to CodeTourStep format
@@ -229,7 +169,7 @@ export class TourGenerator {
                     description: step.description
                 };
 
-                if (step.line) {
+                if (step.line && step.line > 0) {
                     tourStep.line = step.line;
                 }
 
@@ -243,21 +183,8 @@ export class TourGenerator {
             }
         }
 
+        console.log(`✓ Validated ${validatedSteps.length} steps (from ${steps.length} generated)`);
         return validatedSteps;
-    }
-
-    private findSimilarFile(targetFile: string, files: FileAnalysis[]): string | null {
-        // Simple similarity check based on filename
-        const targetName = targetFile.split("/").pop()?.toLowerCase() || "";
-
-        for (const file of files) {
-            const fileName = file.file.split("/").pop()?.toLowerCase() || "";
-            if (fileName === targetName) {
-                return file.file;
-            }
-        }
-
-        return null;
     }
 
     private createTour(steps: CodeTourStep[], options: TourGenerationOptions): CodeTour {

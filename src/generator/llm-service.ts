@@ -51,12 +51,15 @@ export class LLMService {
         return this.config.apiKey.trim() !== "";
     }
 
-    public async generateCompletion(messages: LLMMessage[]): Promise<LLMResponse> {
+    public async generateCompletion(messages: LLMMessage[], retryCount = 0): Promise<LLMResponse> {
         if (!this.isConfigured()) {
             throw new Error("LLM API key is not configured. Please configure it using 'CodeTour: Configure LLM Settings' command.");
         }
 
-        console.log(`🤖 Calling ${this.config.provider} API with model ${this.config.model}...`);
+        const MAX_RETRIES = 3;
+        const BASE_DELAY = 2000; // 2 seconds
+
+        console.log(`🤖 Calling ${this.config.provider} API with model ${this.config.model}... (attempt ${retryCount + 1}/${MAX_RETRIES + 1})`);
 
         try {
             const response = await this.callLLMAPI(messages);
@@ -64,10 +67,20 @@ export class LLMService {
             return response;
         } catch (error: any) {
             console.error("❌ LLM API error:", error);
+
             if (error.response?.status === 401) {
                 throw new Error("Invalid API key. Please check your LLM configuration.");
             } else if (error.response?.status === 429) {
-                throw new Error("Rate limit exceeded. Please try again later.");
+                // RATE LIMIT - Retry with exponential backoff
+                if (retryCount < MAX_RETRIES) {
+                    const delay = BASE_DELAY * Math.pow(2, retryCount); // 2s, 4s, 8s
+                    console.log(`⏳ Rate limit hit! Retrying in ${delay / 1000}s... (attempt ${retryCount + 1}/${MAX_RETRIES})`);
+
+                    await new Promise(resolve => setTimeout(resolve, delay));
+                    return this.generateCompletion(messages, retryCount + 1);
+                } else {
+                    throw new Error("Rate limit exceeded after 3 retries. Please try again later or reduce concurrent batches.");
+                }
             } else if (error.code === 'ENOTFOUND' || error.code === 'ECONNREFUSED') {
                 throw new Error(`Cannot reach LLM API at ${this.config.apiUrl}. Check your internet connection.`);
             } else {
@@ -117,7 +130,7 @@ export class LLMService {
                 model: this.config.model,
                 messages: messages,
                 temperature: 0.7,
-                max_tokens: 4096
+                max_tokens: 2000  // Reduced from 4096 to stay under token limits
             },
             timeout: 120000, // 2 minute timeout
             validateStatus: () => true // Don't throw on any status, we'll handle it

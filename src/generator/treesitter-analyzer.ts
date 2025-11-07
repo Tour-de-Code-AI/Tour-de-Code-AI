@@ -178,6 +178,11 @@ export class TreeSitterAnalyzer {
 
                     console.log(`   └─ AST Root: ${tree.rootNode.type} (${tree.rootNode.childCount} children)`);
 
+                    // ⚠️ Log warnings for parse errors but STILL EXTRACT DATA
+                    if (tree.rootNode.type === 'ERROR' || tree.rootNode.hasError()) {
+                        console.warn(`   └─ ⚠️  Parse errors in ${filePath} - extracting what we can...`);
+                    }
+
                     const elements = this.extractElements(tree.rootNode, filePath, content);
                     const imports = this.extractImports(tree.rootNode, content);
                     const exports = this.extractExports(tree.rootNode, content);
@@ -450,7 +455,7 @@ export class TreeSitterAnalyzer {
         console.log(`🔍 Searching for files: ${includeFileTypes.join(", ")}`);
         const pattern = `**/*{${includeFileTypes.join(",")}}`;
 
-        // Comprehensive exclusion patterns
+        // 🔥 AGGRESSIVE EXCLUSION (like Cline - only analyze REAL source code!)
         const excludePatterns = [
             "**/node_modules/**",
             "**/dist/**",
@@ -466,7 +471,21 @@ export class TreeSitterAnalyzer {
             "**/*.d.ts",
             "**/.git/**",
             "**/.vscode/**",
-            "**/.idea/**"
+            "**/.idea/**",
+            "**/fixtures/**",        // ← SKIP TEST FIXTURES!
+            "**/examples/**",        // ← SKIP EXAMPLES!
+            "**/demo/**",            // ← SKIP DEMOS!
+            "**/demos/**",
+            "**/scripts/**",         // ← SKIP BUILD SCRIPTS!
+            "**/tools/**",           // ← SKIP TOOLING!
+            "**/.storybook/**",
+            "**/stories/**",
+            "**/*.stories.*",
+            "**/webpack.config.*",
+            "**/vite.config.*",
+            "**/rollup.config.*",
+            "**/*.config.js",
+            "**/*.config.ts"
         ].join(",");
 
         // If maxFiles is 0, analyze EVERYTHING (unlimited)
@@ -482,11 +501,11 @@ export class TreeSitterAnalyzer {
 
         console.log(`📝 Found ${foundFiles.length} source files (tests/node_modules excluded)`);
 
-        // Additional filtering for files that slipped through
+        // 🔥 FINAL FILTER - catch anything that slipped through!
         const cleanedFiles = foundFiles.filter(uri => {
             const relativePath = vscode.workspace.asRelativePath(uri).toLowerCase();
 
-            // Skip any remaining test/config files
+            // Skip ANYTHING non-essential (like Cline does!)
             if (relativePath.includes('.test.') ||
                 relativePath.includes('.spec.') ||
                 relativePath.includes('test/') ||
@@ -495,7 +514,14 @@ export class TreeSitterAnalyzer {
                 relativePath.includes('.config.') ||
                 relativePath.includes('config/') ||
                 relativePath.includes('.generated.') ||
-                relativePath.includes('.min.')) {
+                relativePath.includes('.min.') ||
+                relativePath.includes('fixture') ||     // ← fixtures
+                relativePath.includes('example') ||     // ← examples
+                relativePath.includes('demo') ||        // ← demos
+                relativePath.includes('script') ||      // ← scripts (downloadFonts.js etc)
+                relativePath.includes('tool') ||        // ← tools
+                relativePath.includes('storybook') ||   // ← storybook
+                relativePath.includes('.stories.')) {
                 return false;
             }
 
@@ -509,18 +535,33 @@ export class TreeSitterAnalyzer {
         const filesToAnalyze = maxFiles === 0 ? prioritizedFiles : prioritizedFiles.slice(0, maxFiles);
         console.log(`🎯 Analyzing ${filesToAnalyze.length} files with TreeSitter AST...`);
 
+        // SEQUENTIAL ANALYSIS with TIMEOUT per file (avoid hanging!)
+        console.log(`📊 Analyzing ${filesToAnalyze.length} files SEQUENTIALLY (with timeout per file)...`);
+
         let analyzed = 0;
+        const FILE_TIMEOUT = 5000; // 5 seconds max per file
+
         for (const fileUri of filesToAnalyze) {
             try {
-                const document = await vscode.workspace.openTextDocument(fileUri);
-                const relativePath = vscode.workspace.asRelativePath(fileUri);
-                const analysis = await this.analyzeFile(
-                    relativePath,
-                    document.getText(),
-                    document.languageId
+                // Wrap analysis in timeout
+                const analysisPromise = (async () => {
+                    const document = await vscode.workspace.openTextDocument(fileUri);
+                    const relativePath = vscode.workspace.asRelativePath(fileUri);
+                    return await this.analyzeFile(
+                        relativePath,
+                        document.getText(),
+                        document.languageId
+                    );
+                })();
+
+                const timeoutPromise = new Promise<null>((_, reject) =>
+                    setTimeout(() => reject(new Error('Timeout')), FILE_TIMEOUT)
                 );
 
+                const analysis = await Promise.race([analysisPromise, timeoutPromise]);
+
                 if (analysis) {
+                    const relativePath = vscode.workspace.asRelativePath(fileUri);
                     files.push(analysis);
                     analyzed++;
                     console.log(`   ✓ ${relativePath}: ${analysis.elements.length} elements`);
@@ -530,8 +571,17 @@ export class TreeSitterAnalyzer {
                         entryPoints.push(relativePath);
                     }
                 }
-            } catch (error) {
-                console.error(`Failed to analyze ${fileUri.fsPath}:`, error);
+
+                // Show progress every 10 files
+                if (analyzed % 10 === 0) {
+                    console.log(`   📊 Progress: ${analyzed}/${filesToAnalyze.length} files`);
+                }
+            } catch (error: any) {
+                if (error.message === 'Timeout') {
+                    console.warn(`   ⏱️  Skipped ${vscode.workspace.asRelativePath(fileUri)} (took >5s)`);
+                } else {
+                    console.error(`   ❌ Failed to analyze ${fileUri.fsPath}:`, error.message);
+                }
             }
         }
 

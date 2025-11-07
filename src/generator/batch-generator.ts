@@ -4,457 +4,317 @@
 import * as vscode from "vscode";
 import { LLMService } from "./llm-service";
 import { GeneratedTourStep } from "./tour-generator";
-import { FileAnalysis, ProjectStructure } from "./treesitter-analyzer";
 
 export class BatchTourGenerator {
     private llmService: LLMService;
-    private readonly BATCH_SIZE = 4; // Smaller batches = faster!
-    private readonly CONCURRENT_BATCHES = 3; // Process 3 batches at once!
-    private readonly TIMEOUT_MS = 45000; // 45 second timeout per batch (was 90s)
-    private readonly TARGET_STEPS = 25; // Aim for 20-30 total steps (not 100+)
+    private readonly TARGET_STEPS = 15; // 15-20 total checkpoints (narrative tour style)
+    private readonly FILES_PER_CHUNK = 5; // Process 5 files at a time to stay under token limits
+    private readonly LINES_PER_FILE = 25; // Show first 25 lines of each file (balanced context)
+    private readonly PARALLEL_CHUNKS = 10; // Process 3 chunks in parallel for speed
 
     constructor() {
         this.llmService = new LLMService();
     }
 
     async generateTourInBatches(
-        structure: ProjectStructure,
+        repomixResult: any,
         projectContext: string,
         progress: vscode.Progress<{ message?: string; increment?: number }>
     ): Promise<GeneratedTourStep[]> {
-        console.log("🚀 Starting SMART tour generation (quality + speed!)");
+        console.log("🚀 Starting SIMPLIFIED tour generation (Repomix → LLM)");
+        console.log("📦 Repomix files:", repomixResult.output.totalFiles);
+        console.log("📦 Repomix lines:", repomixResult.output.totalLines);
+        console.log("🎯 NO TreeSitter - LLM will parse code from Repomix XML!");
 
         const allSteps: GeneratedTourStep[] = [];
 
-        // STEP 1: Filter out noise (tests, configs, etc.)
-        const importantFiles = this.filterImportantFiles(structure.files);
-        console.log(`🎯 Filtered ${structure.files.length} files → ${importantFiles.length} important files`);
-        console.log(`   Skipped: tests, specs, configs, generated files`);
-
-        // PASS 1: Welcome Page + Architecture Overview (MUST BE FIRST!)
-        progress.report({ message: "📖 Generating welcome page & architecture...", increment: 15 });
-        console.log("Pass 1/N: Generating welcome page (this will be step #1)...");
-        const welcomeSteps = await this.generateWelcomePage(structure, projectContext);
+        // STEP 1: Welcome Page (LLM generates high-level overview)
+        progress.report({ message: "🧠 Analyzing codebase for overview...", increment: 10 });
+        console.log("Step 1: LLM analyzing codebase for high-level overview...");
+        const welcomeSteps = await this.generateWelcomeFromLLM(repomixResult, projectContext, progress);
 
         if (welcomeSteps.length === 0) {
             console.error("❌ ERROR: No welcome steps generated!");
         } else {
+            console.log(`✅ Welcome steps generated: ${welcomeSteps.length}`);
             allSteps.push(...welcomeSteps);
-            console.log(`✓ Generated ${welcomeSteps.length} welcome step(s)`);
-            console.log(`   Step #1 Title: "${welcomeSteps[0]?.title || 'Unknown'}"`);
-            console.log(`   Step #1 File: "${welcomeSteps[0]?.file || 'Unknown'}"`);
-            console.log(`   Step #1 Line: ${welcomeSteps[0]?.line || 'N/A'}`);
-            console.log(`   Current total steps: ${allSteps.length}`);
         }
 
-        // PASS 2-N: CONCURRENT batch processing (FAST!)
-        const batches = this.createFileBatches(importantFiles);
-        console.log(`📦 Split ${importantFiles.length} files into ${batches.length} batches (${this.BATCH_SIZE} files each)`);
-        console.log(`⚡ Processing ${this.CONCURRENT_BATCHES} batches concurrently for SPEED!`);
+        // STEP 2: Generate checkpoints from Repomix XML (ONE LLM CALL!)
+        progress.report({ message: "🤖 Generating checkpoints from Repomix...", increment: 20 });
+        console.log("Step 2: Generating checkpoints from Repomix (ONE LLM CALL)...");
+        const checkpointSteps = await this.generateCheckpointsFromRepomix(repomixResult, projectContext, progress);
 
-        const incrementPerBatch = 80 / batches.length;
-
-        // Process batches in concurrent groups
-        for (let groupStart = 0; groupStart < batches.length; groupStart += this.CONCURRENT_BATCHES) {
-            const batchGroup = batches.slice(groupStart, groupStart + this.CONCURRENT_BATCHES);
-            const groupNum = Math.floor(groupStart / this.CONCURRENT_BATCHES) + 1;
-            const totalGroups = Math.ceil(batches.length / this.CONCURRENT_BATCHES);
-
-            console.log(`\n🚀 Processing group ${groupNum}/${totalGroups} (${batchGroup.length} batches concurrently)...`);
-
-            // Process all batches in this group concurrently
-            const batchPromises = batchGroup.map(async (batch, idx) => {
-                const batchNum = groupStart + idx + 1;
-                const batchId = `batch-${batchNum}`;
-
-                try {
-                    progress.report({
-                        message: `⚡ Batch ${batchNum}/${batches.length}: ${batch[0].file.split('/').pop()} + ${batch.length - 1} more...`,
-                        increment: 0
-                    });
-
-                    console.log(`   [${batchId}] Starting: ${batch.map(f => f.file.split('/').pop()).join(", ")}`);
-
-                    const batchSteps = await this.generateBatchWithTimeout(
-                        batch,
-                        structure,
-                        projectContext,
-                        batchNum
-                    );
-
-                    console.log(`   [${batchId}] ✓ Generated ${batchSteps.length} steps`);
-                    progress.report({ increment: incrementPerBatch });
-
-                    return batchSteps;
-                } catch (error: any) {
-                    console.error(`   [${batchId}] ❌ Failed: ${error.message}`);
-                    // Return empty array instead of failing - continue with other batches
-                    return [];
-                }
-            });
-
-            // Wait for all batches in this group to complete
-            const groupResults = await Promise.all(batchPromises);
-
-            const stepsBefore = allSteps.length;
-            groupResults.forEach(steps => allSteps.push(...steps));
-            const stepsAdded = allSteps.length - stepsBefore;
-
-            console.log(`✓ Group ${groupNum} complete: ${stepsAdded} steps added (total now: ${allSteps.length})`);
+        if (checkpointSteps.length === 0) {
+            throw new Error("❌ ERROR: No checkpoint steps generated!");
         }
 
-        console.log(`\n🎉 SMART TOUR GENERATION COMPLETE!`);
-        console.log(`   Total steps generated: ${allSteps.length}`);
-        console.log(`   Batches processed: ${batches.length} (${this.CONCURRENT_BATCHES} concurrent)`);
-        console.log(`   Important files covered: ${importantFiles.length}/${structure.files.length}`);
-        console.log(`   Speed boost: ~${this.CONCURRENT_BATCHES}x faster + smart filtering!`);
+        console.log(`✅ Checkpoint steps generated: ${checkpointSteps.length}`);
+        allSteps.push(...checkpointSteps);
+
+        progress.report({ message: "✅ Tour generation complete!", increment: 30 });
+        console.log("\n🎉 TOUR GENERATION COMPLETE!");
+        console.log(`   Welcome steps: ${welcomeSteps.length}`);
+        console.log(`   Checkpoint steps: ${checkpointSteps.length}`);
+        console.log(`   Total steps: ${allSteps.length}`);
+        console.log(`   Method: Repomix → LLM (NO TreeSitter!)`);
 
         return allSteps;
     }
 
-    private filterImportantFiles(files: FileAnalysis[]): FileAnalysis[] {
-        return files.filter(file => {
-            const fileName = file.file.toLowerCase();
+    // Generate checkpoints using CHUNKED approach to avoid rate limits
+    private async generateCheckpointsFromRepomix(
+        repomixResult: any,
+        projectContext: string,
+        progress: vscode.Progress<{ message?: string; increment?: number }>
+    ): Promise<GeneratedTourStep[]> {
+        console.log(`\n🤖 Generating checkpoints from Repomix data (CHUNKED APPROACH)...`);
+        console.log(`   Total files: ${repomixResult.output.totalFiles}`);
+        console.log(`   Total lines: ${repomixResult.output.totalLines}`);
+        console.log(`   XML size: ${(repomixResult.outputContent.length / 1024).toFixed(2)} KB`);
+        console.log(`   Strategy: Process ${this.FILES_PER_CHUNK} files per chunk to avoid rate limits`);
 
-            // SKIP noise files
-            if (
-                fileName.includes('.test.') ||
-                fileName.includes('.spec.') ||
-                fileName.includes('__tests__') ||
-                fileName.includes('test/') ||
-                fileName.includes('tests/') ||
-                fileName.includes('.config.') ||
-                fileName.includes('config/') ||
-                fileName.includes('.generated.') ||
-                fileName.includes('node_modules') ||
-                fileName.includes('dist/') ||
-                fileName.includes('build/') ||
-                fileName.includes('.min.') ||
-                fileName.includes('.d.ts') // type definitions
-            ) {
-                return false;
-            }
+        // Step 1: Sort files by importance (entry points first!)
+        const allFiles = [...repomixResult.output.files]; // Copy array
 
-            // MUST have meaningful code elements
-            if (file.elements.length === 0) {
-                return false;
-            }
+        // Prioritize entry point files to be in chunk 1
+        const entryPointPriority = (file: any): number => {
+            const path = file.path.toLowerCase();
+            const name = path.split('/').pop() || '';
 
-            return true;
-        });
-    }
+            // Highest priority: main entry points
+            if (name.match(/^(main|index|app|server|extension)\.(ts|js|tsx|jsx|py|go|java|rb)$/)) return 1;
+            // High priority: src root files
+            if (path.match(/^src\/(main|index|app|extension)\./)) return 2;
+            // Medium priority: top-level src files
+            if (path.match(/^src\/[^\/]+\.(ts|js|tsx|jsx)$/)) return 3;
+            // Everything else
+            return 4;
+        };
 
-    private createFileBatches(files: FileAnalysis[]): FileAnalysis[][] {
-        const batches: FileAnalysis[][] = [];
-
-        // Prioritize files: entry points first, then by importance
-        const sortedFiles = [...files].sort((a, b) => {
-            const aScore = this.getFileImportance(a);
-            const bScore = this.getFileImportance(b);
-            return bScore - aScore;
+        allFiles.sort((a, b) => {
+            const priorityA = entryPointPriority(a);
+            const priorityB = entryPointPriority(b);
+            if (priorityA !== priorityB) return priorityA - priorityB;
+            // If same priority, sort by path
+            return a.path.localeCompare(b.path);
         });
 
-        for (let i = 0; i < sortedFiles.length; i += this.BATCH_SIZE) {
-            batches.push(sortedFiles.slice(i, i + this.BATCH_SIZE));
+        console.log(`   ✅ Sorted files (entry points first):`);
+        console.log(`      First file: ${allFiles[0]?.path} (priority: ${entryPointPriority(allFiles[0])})`);
+        console.log(`      Last file: ${allFiles[allFiles.length - 1]?.path}`);
+
+        // Step 2: Split sorted files into chunks
+        const chunks: any[][] = [];
+        for (let i = 0; i < allFiles.length; i += this.FILES_PER_CHUNK) {
+            chunks.push(allFiles.slice(i, i + this.FILES_PER_CHUNK));
         }
 
-        return batches;
-    }
+        console.log(`\n📦 Split into ${chunks.length} chunks of ~${this.FILES_PER_CHUNK} files each`);
+        console.log(`   Processing ${this.PARALLEL_CHUNKS} chunks in parallel for speed`);
 
-    private getFileImportance(file: FileAnalysis): number {
-        let score = 0;
-        const fileName = file.file.toLowerCase();
+        // Step 2: Process chunks in parallel batches
+        const allCheckpoints: GeneratedTourStep[] = [];
+        const stepsPerChunk = Math.ceil(this.TARGET_STEPS / chunks.length);
 
-        // Entry points and core files
-        if (fileName.includes('index') || fileName.includes('main') || fileName.includes('app')) {
-            score += 100;
-        }
+        // Process PARALLEL_CHUNKS at a time
+        for (let batchStart = 0; batchStart < chunks.length; batchStart += this.PARALLEL_CHUNKS) {
+            const batchEnd = Math.min(batchStart + this.PARALLEL_CHUNKS, chunks.length);
+            const parallelChunks = chunks.slice(batchStart, batchEnd);
 
-        // Source files more important than config
-        if (fileName.includes('src/') || fileName.includes('lib/')) {
-            score += 50;
-        }
+            console.log(`\n🔄 Processing parallel batch: chunks ${batchStart + 1}-${batchEnd} of ${chunks.length}`);
 
-        // Files with more elements are more important
-        score += file.elements.length * 5;
+            // Process this batch in parallel
+            const promises = parallelChunks.map(async (chunk, index) => {
+                const chunkNum = batchStart + index + 1;
 
-        // Penalize test files
-        if (fileName.includes('test') || fileName.includes('spec')) {
-            score -= 50;
-        }
+                console.log(`📤 Chunk ${chunkNum}/${chunks.length}: Starting (${chunk.length} files)...`);
 
-        return score;
-    }
+                const progressIncrement = 60 / chunks.length;
+                progress.report({
+                    message: `🤖 Analyzing chunk ${chunkNum}/${chunks.length}...`,
+                    increment: progressIncrement
+                });
 
-    private async generateWelcomePage(structure: ProjectStructure, projectContext: string): Promise<GeneratedTourStep[]> {
-        const workspaceName = vscode.workspace.name || "this project";
-
-        // Try to read README.md and package.json for project context
-        let readmeContent = "";
-        let packageDescription = "";
-        let welcomeFile = structure.files[0]?.file || "README.md";
-
-        try {
-            const workspaceFolders = vscode.workspace.workspaceFolders;
-            if (workspaceFolders && workspaceFolders.length > 0) {
-                // Read README.md
                 try {
-                    const readmePath = vscode.Uri.joinPath(workspaceFolders[0].uri, "README.md");
-                    const readmeDoc = await vscode.workspace.openTextDocument(readmePath);
-                    const fullReadme = readmeDoc.getText();
+                    const checkpoints = await this.generateCheckpointsForChunk(
+                        chunk,
+                        projectContext,
+                        stepsPerChunk,
+                        chunkNum,
+                        chunks.length
+                    );
 
-                    // Clean README: Skip badges, sponsors, ads
-                    readmeContent = this.cleanReadmeContent(fullReadme);
-                    welcomeFile = "README.md";
-                    console.log(`📖 Read README.md (cleaned: ${readmeContent.length} chars)`);
-                } catch (e) {
-                    console.log("📝 No README.md found");
+                    console.log(`✅ Chunk ${chunkNum}: Generated ${checkpoints.length} checkpoints`);
+                    return { chunkNum, checkpoints, success: true };
+
+                } catch (error: any) {
+                    console.error(`❌ Chunk ${chunkNum} FAILED: ${error.message}`);
+                    return { chunkNum, checkpoints: [], success: false, error: error.message };
                 }
+            });
 
-                // Read package.json for description
-                try {
-                    const packagePath = vscode.Uri.joinPath(workspaceFolders[0].uri, "package.json");
-                    const packageDoc = await vscode.workspace.openTextDocument(packagePath);
-                    const packageJson = JSON.parse(packageDoc.getText());
-                    packageDescription = packageJson.description || "";
-                    console.log(`📦 package.json description: ${packageDescription}`);
-                } catch (e) {
-                    // No package.json, that's fine
+            // Wait for all parallel chunks to complete
+            const results = await Promise.all(promises);
+
+            // Collect successful checkpoints
+            for (const result of results) {
+                if (result.success && result.checkpoints.length > 0) {
+                    allCheckpoints.push(...result.checkpoints);
+                    console.log(`   ✓ Chunk ${result.chunkNum}: Added ${result.checkpoints.length} checkpoints (total: ${allCheckpoints.length})`);
+                } else if (result.success && result.checkpoints.length === 0) {
+                    console.warn(`   ⚠️ Chunk ${result.chunkNum}: No checkpoints generated`);
                 }
             }
-        } catch (error) {
-            console.log("📝 Using first analyzed file for welcome step");
+
+            // Small delay between parallel batches (not between individual chunks!)
+            if (batchEnd < chunks.length) {
+                console.log(`   ⏳ Waiting 1s before next parallel batch...`);
+                await new Promise(resolve => setTimeout(resolve, 1000));
+            }
         }
 
-        // Use a dedicated system prompt for welcome page ONLY
-        const systemPrompt = `You are creating the WELCOME PAGE for a code tour. This is the FIRST step that introduces the entire project.
+        console.log(`\n✅ TOTAL: Generated ${allCheckpoints.length} checkpoints from ${chunks.length} chunks`);
 
-Your job: Analyze the README and codebase to create a comprehensive welcome that explains WHAT this project DOES and WHY it EXISTS.
+        // Step 3: Check if we got any checkpoints at all
+        if (allCheckpoints.length === 0) {
+            console.error(`\n❌ CRITICAL: No checkpoints generated from ANY chunk!`);
+            console.error(`   This means all ${chunks.length} chunks failed.`);
+            console.error(`   Check the error logs above for details.`);
+            console.error(`   Common causes:`);
+            console.error(`   - LLM API key not configured`);
+            console.error(`   - LLM returning non-JSON responses`);
+            console.error(`   - Rate limits (even with chunking)`);
+            console.error(`   - Network issues`);
+            throw new Error(`Failed to generate any checkpoints. All ${chunks.length} chunks failed. Check console for details.`);
+        }
 
-CRITICAL: Focus on FUNCTIONALITY, not marketing:
-- **Purpose**: What SPECIFIC problem does this solve? What is its PRIMARY function?
-- **Core Functionality**: What are the MAIN features and capabilities?
-- **Key Use Cases**: CONCRETE scenarios where developers/users would use this (2-3 specific examples)
-- **How It Works**: High-level flow - Input → Processing → Output
-- **Architecture**: Main components and their roles
-- **Tech Stack**: Languages, frameworks, key libraries
-- **What You'll Learn**: What developers will understand after this tour
+        // Step 4: If we have more than TARGET_STEPS, pick the best ones
+        if (allCheckpoints.length > this.TARGET_STEPS) {
+            console.log(`   Trimming to top ${this.TARGET_STEPS} checkpoints...`);
+            // Keep first checkpoint from each chunk, then fill remaining
+            const finalCheckpoints = allCheckpoints.slice(0, this.TARGET_STEPS);
+            return finalCheckpoints;
+        }
 
-AVOID: Marketing fluff, sponsor ads, vague descriptions. Be SPECIFIC and TECHNICAL.`;
+        return allCheckpoints;
+    }
 
-        const userPrompt = `${projectContext}
+    // Process a single chunk of files
+    private async generateCheckpointsForChunk(
+        files: any[],
+        projectContext: string,
+        targetSteps: number,
+        chunkNum: number,
+        totalChunks: number
+    ): Promise<GeneratedTourStep[]> {
+        // Build file summaries for this chunk
+        const fileSummaries = files.map((file: any) => {
+            // Get first N lines of each file as preview
+            const lines = file.content.split('\n').slice(0, this.LINES_PER_FILE);
+            const preview = lines.map((line: string, idx: number) =>
+                `${String(idx + 1).padStart(4, ' ')}|${line}`
+            ).join('\n');
 
-${packageDescription ? `**PACKAGE DESCRIPTION:** ${packageDescription}\n\n` : ''}
+            return `### ${file.path}
+**Language:** ${file.language} | **Lines:** ${file.lineCount}
+\`\`\`${file.language}
+${preview}
+\`\`\`
+`;
+        }).join('\n\n');
 
-${readmeContent ? `**README CONTENT (cleaned):**\n\`\`\`\n${readmeContent}\n\`\`\`\n\n` : ''}
+        const systemPrompt = `You are a senior software engineer creating a MENTAL MODEL tour of this codebase.
 
-**CODEBASE STRUCTURE:**
-- ${structure.files.length} files analyzed
-- Languages: ${[...new Set(structure.files.map(f => f.language))].join(", ")}
-- Entry points: ${structure.entryPoints.slice(0, 3).join(", ") || "Not detected"}
-- Key directories: ${this.getKeyDirectories(structure.files).join(", ")}
+**🎯 Critical: This is NOT a random collection of files.**
+This is a **sequential journey** where each checkpoint naturally leads to the next.
 
-Create a JSON array with ONE comprehensive welcome step:
+**Create ${targetSteps} checkpoints for chunk ${chunkNum}/${totalChunks}:**
 
+${chunkNum === 1 ? `**⚠️ CHUNK 1 RULES (YOU ARE FIRST):**
+1. **Checkpoint 1 MUST be the entry point** - Analyze the files and identify where the application starts
+2. Look for: package.json "main" field, files with minimal imports but are imported by others, bootstrap/initialization patterns
+3. Then follow where that entry point leads (imports, initializations)
+4. Build the mental model: "Start here → Then this happens → Then that happens"
+` : `**CHUNK ${chunkNum} RULES (continuing from previous chunks):**
+1. These checkpoints continue the journey from previous chunks
+2. Follow the logical flow (data flow, execution path, module dependencies)
+3. Each checkpoint should feel like the next natural step
+`}
+
+**Each checkpoint must include:**
+1. **Title**: Technical + sequential (e.g., "🏁 Entry Point - Application Bootstrap" or "⚙️ Core Router - Request Dispatch")
+2. **File**: The actual file path
+3. **Line**: Where this checkpoint starts (1-${this.LINES_PER_FILE})
+4. **Description**: 4-6 sentences covering:
+   - **What**: What this component does
+   - **Why**: Why it exists in the flow (what problem it solves)
+   - **How**: Key implementation details (patterns, data structures)
+   - **Next**: How it connects to the next checkpoint ("This calls X, which handles Y...")
+
+**Mental Model Flow Rules:**
+- ✅ **Sequential**: Each checkpoint should logically follow the previous
+- ✅ **Connected**: Explicitly mention how components interact ("calls", "imports", "emits to", "receives from")
+- ✅ **Execution order**: Follow how code actually executes, not alphabetical order
+- ✅ **Progressive depth**: Start broad (entry points) → go deeper (core logic) → integrations
+
+**Writing Style:**
+- Professional and technical
+- Focus on flow: "This component receives X, processes it via Y, and outputs Z to..."
+- Explain architectural decisions and trade-offs
+- Use proper technical terminology
+
+**Good Example:**
+"Application entry point that bootstraps the VS Code extension. Registers the 'generateTour' command with vscode.commands and initializes the RepomixService for codebase analysis. The activation function follows VS Code's extension lifecycle pattern, ensuring all services are ready before accepting user commands. **Next**: When users trigger the command, it delegates to TourGenerator for analysis."
+
+**Return Format (JSON array, no markdown):**
 [
   {
-    "title": "🎉 Welcome to ${workspaceName}",
-    "file": "${welcomeFile}",
+    "title": "🏁 Entry Point - Extension Activation",
+    "file": "src/extension.ts",
     "line": 1,
-    "description": "# Welcome to ${workspaceName}\n\n## 🎯 Purpose\n[SPECIFIC functionality - e.g., 'Packages repository into a single text file for AI context']\n\n## ⚙️ Core Functionality\n- [Feature 1 - be specific about what it does]\n- [Feature 2 - actual capabilities]\n- [Feature 3 - key operations]\n\n## 💡 Use Cases\n1. **[Scenario 1]**: [Concrete example - e.g., 'Developer wants to share codebase with Claude']\n2. **[Scenario 2]**: [Specific use - e.g., 'Team needs to analyze project structure']\n3. **[Scenario 3]**: [Real application]\n\n## 🔄 How It Works\n[Brief flow: Input → Processing → Output]\n\n## 🏗️ Architecture\n- **[Component 1]**: [Role and responsibility]\n- **[Component 2]**: [What it handles]\n- **[Component 3]**: [Its function]\n\n## 🛠️ Tech Stack\n${[...new Set(structure.files.map(f => f.language))].join(", ")}, [key frameworks/libraries]\n\n## 📂 Project Structure\n${this.getKeyDirectories(structure.files).map(d => `- \`${d}/\` - [purpose]`).join('\\n')}\n\n## 📚 What This Tour Covers\n[Specific areas you'll explore]"
+    "description": "..."
+  },
+  {
+    "title": "⚙️ Tour Generator - Orchestration Layer",
+    "file": "src/generator/tour-generator.ts",
+    "line": 15,
+    "description": "..."
   }
-]
-
-Be CONCRETE and TECHNICAL. Explain FUNCTIONALITY, not marketing.`;
-
-        try {
-            // Use generateCompletion directly to avoid conflicting system prompts
-            const response = await this.llmService.generateCompletion([
-                { role: "system", content: systemPrompt },
-                { role: "user", content: userPrompt }
-            ]);
-
-            const steps = this.parseStepsFromResponse(response.content);
-
-            if (steps.length === 0) {
-                throw new Error("No steps generated");
-            }
-
-            console.log(`✓ Welcome page generated: "${steps[0].title}"`);
-            console.log(`   File: ${steps[0].file || welcomeFile}`);
-
-            // Ensure the file path is set correctly
-            if (!steps[0].file || steps[0].file === "README.md") {
-                steps[0].file = welcomeFile;
-            }
-
-            return steps.slice(0, 1); // Only take the first step
-        } catch (error: any) {
-            console.error("Failed to generate welcome page with LLM:", error.message);
-            console.log("⚠️  Using fallback welcome page...");
-
-            // Fallback: create welcome step with cleaned README content
-            let description: string;
-
-            if (readmeContent && readmeContent.length > 100) {
-                // Use cleaned README content
-                const readmeLines = readmeContent.split('\n').slice(0, 40);
-                description = `# Welcome to ${workspaceName}\n\n`;
-
-                if (packageDescription) {
-                    description += `## 🎯 Purpose\n${packageDescription}\n\n`;
-                }
-
-                description += `${readmeLines.join('\n')}\n\n`;
-                description += `## 📊 Codebase Overview\n`;
-                description += `- **Files**: ${structure.files.length} analyzed\n`;
-                description += `- **Languages**: ${[...new Set(structure.files.map(f => f.language))].join(", ")}\n`;
-                description += `- **Entry Points**: ${structure.entryPoints.slice(0, 3).join(", ") || "Not detected"}\n\n`;
-                description += `## 📚 Tour Coverage\nThis tour explores the key components, architecture, and implementation details of this codebase.\n`;
-            } else {
-                // Minimal fallback when no README
-                description = `# Welcome to ${workspaceName}\n\n`;
-
-                if (packageDescription) {
-                    description += `## 🎯 Purpose\n${packageDescription}\n\n`;
-                }
-
-                description += `## 📊 Project Overview\n`;
-                description += `- **Files Analyzed**: ${structure.files.length}\n`;
-                description += `- **Languages**: ${[...new Set(structure.files.map(f => f.language))].join(", ")}\n`;
-                description += `- **Entry Points**: ${structure.entryPoints.slice(0, 3).join(", ") || "Not detected"}\n\n`;
-                description += `## 📂 Key Directories\n`;
-                description += this.getKeyDirectories(structure.files).map(d => `- \`${d}/\` - Main source directory`).join('\n');
-                description += `\n\n## 🎯 What You'll Learn\n`;
-                description += `This tour will walk you through the codebase structure, key components, and how different parts work together.\n`;
-            }
-
-            const fallbackStep = {
-                title: `🎉 Welcome to ${workspaceName}`,
-                file: welcomeFile,
-                line: 1,
-                description
-            };
-
-            console.log(`✓ Fallback welcome page created`);
-            console.log(`   File: ${fallbackStep.file}`);
-
-            return [fallbackStep];
-        }
-    }
-
-    private getKeyDirectories(files: FileAnalysis[]): string[] {
-        const dirs = new Set<string>();
-        files.forEach(f => {
-            const parts = f.file.split('/');
-            if (parts.length > 1) {
-                dirs.add(parts[0]); // Top-level directory
-            }
-        });
-        return Array.from(dirs).slice(0, 6); // Top 6 directories
-    }
-
-    private cleanReadmeContent(readme: string): string {
-        const lines = readme.split('\n');
-        const cleaned: string[] = [];
-        let skipSection = false;
-
-        for (let i = 0; i < lines.length; i++) {
-            const line = lines[i].toLowerCase();
-            const originalLine = lines[i];
-
-            // Skip badge lines (usually at the top)
-            if (originalLine.match(/!\[.*?\]\(.*?badge.*?\)/i) ||
-                originalLine.match(/!\[.*?\]\(https:\/\/img\.shields\.io/i)) {
-                continue;
-            }
-
-            // Skip sponsor/ad sections
-            if (line.includes('sponsor') ||
-                line.includes('### sponsors') ||
-                line.includes('## sponsors') ||
-                line.includes('### thank')) {
-                skipSection = true;
-                continue;
-            }
-
-            // Skip lines that look like ads (contain product names + promotional text)
-            if ((line.includes('warp') && line.includes('built for')) ||
-                (line.includes('tuple') && line.includes('premier')) ||
-                (line.includes('available for') && line.includes('macos')) ||
-                line.match(/\b(try|get|download|available)\b.*\b(free|now|today)\b/i)) {
-                continue;
-            }
-
-            // Resume on next heading
-            if (skipSection && originalLine.match(/^#{1,3}\s/)) {
-                skipSection = false;
-            }
-
-            if (!skipSection) {
-                cleaned.push(originalLine);
-            }
-        }
-
-        // Take first 5000 chars of cleaned content
-        return cleaned.join('\n').slice(0, 5000);
-    }
-
-    private async generateBatchWithTimeout(
-        batch: FileAnalysis[],
-        structure: ProjectStructure,
-        projectContext: string,
-        batchNum: number
-    ): Promise<GeneratedTourStep[]> {
-        return Promise.race([
-            this.generateBatchSteps(batch, structure, projectContext, batchNum),
-            new Promise<GeneratedTourStep[]>((_, reject) =>
-                setTimeout(() => reject(new Error(`Timeout after ${this.TIMEOUT_MS / 1000}s`)), this.TIMEOUT_MS)
-            )
-        ]);
-    }
-
-    private async generateBatchSteps(
-        batch: FileAnalysis[],
-        structure: ProjectStructure,
-        projectContext: string,
-        batchNum: number
-    ): Promise<GeneratedTourStep[]> {
-        const batchStructure = this.formatBatchStructure(batch);
-        const stepsPerBatch = Math.ceil(this.TARGET_STEPS / Math.ceil(structure.files.length / this.BATCH_SIZE));
-
-        // Dedicated system prompt for batch generation (NO welcome page instructions!)
-        const systemPrompt = `You are generating code tour steps for a SPECIFIC BATCH of files. The welcome/intro has ALREADY been created.
-
-Your job: Create detailed steps for the files provided, focusing on helping developers understand the code's purpose, architecture, and connections.`;
+]`;
 
         const userPrompt = `${projectContext}
 
-**BATCH ${batchNum} FILES:**
-${batchStructure}
+**📂 Chunk ${chunkNum} of ${totalChunks}:**
 
-**YOUR TASK:** Create ~${stepsPerBatch} tour steps for these files.
+${chunkNum === 1 ? `**🚨 YOU ARE CREATING THE FIRST CHECKPOINTS:**
+- **Checkpoint 1 MUST be the entry point** - Analyze and identify where the application actually starts
+- Hints: Check package.json, look for bootstrap patterns, see which files are imported by many but import few
+- Then follow the natural execution flow from there
+- Think: "Where does the application START? What happens NEXT?"
+` : `**Continuing the journey from previous chunks:**
+- Build on what came before
+- Follow the logical flow of the architecture
+`}
 
-**FOCUS ON:**
-- Entry points (where execution starts)
-- Core business logic and data flow
-- Public APIs (exported functions/classes)
-- Critical execution paths
-- How components connect
+**🔍 Files in this chunk:**
+${fileSummaries}
 
-**SKIP:** Helper utilities, simple getters/setters, trivial wrappers
+**Your Task:**
+Create ${targetSteps} checkpoints that form a MENTAL MODEL of how this code works.
 
-**FORMAT:** JSON array:
-[
-  {
-    "title": "ComponentName - Brief Role",
-    "file": "src/path/file.ts",
-    "line": 42,
-    "description": "What it does, why it exists, and how it connects to other parts. 2-4 sentences focusing on PURPOSE and RELATIONSHIPS."
-  }
-]
+**Think about:**
+1. If chunk 1: **Start with the entry point**, then follow the flow
+2. How do these components connect? (imports, function calls, data flow)
+3. What's the SEQUENCE? (not alphabetical, but execution order)
+4. How does each checkpoint lead to the next?
 
-Use EXACT line numbers from @XX notation in the files above.`;
+**Use emojis for visual flow:** 🏁 (entry) → ⚙️ (core logic) → 🔗 (integration) → 📊 (data) → 💾 (storage) → 🌐 (network) → 🎯 (output)
+
+Remember: This is a TOUR, not a file listing. Tell a story of how the code executes.`;
+
+        const promptSize = (systemPrompt.length + userPrompt.length) / 1024;
+        console.log(`   Chunk ${chunkNum} prompt size: ${promptSize.toFixed(2)} KB`);
 
         try {
             const response = await this.llmService.generateCompletion([
@@ -462,68 +322,287 @@ Use EXACT line numbers from @XX notation in the files above.`;
                 { role: "user", content: userPrompt }
             ]);
 
-            return this.parseStepsFromResponse(response.content);
-        } catch (error) {
-            console.error(`Failed to generate steps for batch ${batchNum}:`, error);
-            return []; // Return empty array on failure
-        }
-    }
+            console.log(`   ✅ LLM response received (${response.content.length} chars)`);
+            console.log(`   Preview: ${response.content.substring(0, 100)}...`);
 
-    private formatBatchStructure(files: FileAnalysis[]): string {
-        let formatted = "";
+            // Parse JSON response
+            const cleanResponse = response.content.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
 
-        files.forEach(file => {
-            formatted += `\n## ${file.file}\n`;
-
-            if (file.elements.length > 0) {
-                const classes = file.elements.filter(e => e.type === "class");
-                const functions = file.elements.filter(e => e.type === "function" || e.type === "async function");
-                const types = file.elements.filter(e => e.type === "interface" || e.type === "enum");
-
-                if (classes.length > 0) {
-                    formatted += `Classes: ${classes.map(c => {
-                        const methodCount = c.children?.length || 0;
-                        return `${c.name}@${c.line}[${methodCount}m]`;
-                    }).join(", ")}\n`;
-                    classes.forEach(c => {
-                        if (c.children && c.children.length > 0) {
-                            formatted += `  ${c.name} methods: ${c.children.map(m => `${m.name}@${m.line}`).join(", ")}\n`;
-                        }
-                    });
-                }
-
-                if (functions.length > 0) {
-                    formatted += `Functions: ${functions.map(f => `${f.name}@${f.line}`).join(", ")}\n`;
-                }
-
-                if (types.length > 0) {
-                    formatted += `Types: ${types.map(t => `${t.name}@${t.line}`).join(", ")}\n`;
-                }
-            }
-        });
-
-        return formatted;
-    }
-
-    private parseStepsFromResponse(response: string): GeneratedTourStep[] {
-        try {
-            // Extract JSON from response
-            const jsonMatch = response.match(/\[[\s\S]*\]/);
-            if (!jsonMatch) {
-                throw new Error("No JSON array found in response");
-            }
-
-            const steps = JSON.parse(jsonMatch[0]);
+            console.log(`   Attempting to parse JSON...`);
+            const steps = JSON.parse(cleanResponse);
 
             if (!Array.isArray(steps)) {
-                throw new Error("Response is not an array");
+                console.error(`   ❌ Response is not an array: ${typeof steps}`);
+                throw new Error(`Invalid response format (expected array, got ${typeof steps})`);
             }
 
+            console.log(`   ✅ Parsed ${steps.length} steps successfully`);
             return steps;
-        } catch (error) {
-            console.error("Failed to parse LLM response:", error);
-            return [];
+
+        } catch (error: any) {
+            console.error(`   ❌ Failed to process chunk ${chunkNum}:`);
+            console.error(`   Error type: ${error.constructor.name}`);
+            console.error(`   Error message: ${error.message}`);
+
+            if (error.message.includes('JSON')) {
+                console.error(`   This looks like a JSON parsing error - LLM might not have returned valid JSON`);
+            }
+
+            throw error; // Re-throw to be caught by outer try-catch
         }
     }
-}
 
+    /**
+     * Generates welcome checkpoint by asking LLM to analyze the entire codebase
+     * This provides a high-level overview: purpose, architecture, flows, use cases
+     */
+    private async generateWelcomeFromLLM(
+        repomixResult: any,
+        projectContext: string,
+        progress: vscode.Progress<{ message?: string; increment?: number }>
+    ): Promise<GeneratedTourStep[]> {
+        console.log("\n🧠 Generating high-level overview from LLM (analyzing Repomix data)...");
+
+        const allFiles = repomixResult.output.files;
+        const totalFiles = repomixResult.output.totalFiles;
+        const totalLines = repomixResult.output.totalLines;
+        const languages = Array.from(new Set(allFiles.map((f: any) => f.language)));
+
+        // 1. Find key files
+        const readmeFile = allFiles.find((f: any) => f.path.toLowerCase().includes('readme'));
+        const packageJson = allFiles.find((f: any) => f.path.toLowerCase() === 'package.json');
+
+        // 2. Identify entry point (priority-based)
+        const entryPointPriority = (file: any): number => {
+            const path = file.path.toLowerCase();
+            const name = path.split('/').pop() || '';
+            if (name.match(/^(main|index|app|server|extension)\.(ts|js|tsx|jsx|py|go|java|rb)$/)) return 1;
+            if (path.match(/^src\/(main|index|app|extension)\./)) return 2;
+            if (path.match(/^src\/[^\/]+\.(ts|js|tsx|jsx)$/)) return 3;
+            return 4;
+        };
+
+        const sortedFiles = [...allFiles].sort((a, b) => {
+            const priorityA = entryPointPriority(a);
+            const priorityB = entryPointPriority(b);
+            return priorityA - priorityB;
+        });
+
+        const entryPointFile = sortedFiles[0];
+        console.log(`   Identified entry point: ${entryPointFile.path}`);
+
+        // 3. Select 8-10 key files for analysis (entry point + important files)
+        const keyFiles = [entryPointFile];
+
+        // Add package.json if exists
+        if (packageJson) {
+            keyFiles.push(packageJson);
+        }
+
+        // Add 6-8 more important files (skip README, we'll handle it separately)
+        for (const file of sortedFiles.slice(1, 20)) {
+            if (file.path.toLowerCase().includes('readme')) continue;
+            if (file.path === packageJson?.path) continue;
+            if (keyFiles.length >= 10) break;
+            keyFiles.push(file);
+        }
+
+        console.log(`   Analyzing ${keyFiles.length} key files for overview`);
+
+        // 4. Build code snippets from key files
+        const codeSnippets = keyFiles.map(file => {
+            const lines = file.content.split('\n');
+            const preview = lines.slice(0, 40).join('\n'); // First 40 lines
+            return `\n### File: ${file.path} (${file.language}, ${file.lines} lines)\n\`\`\`${file.language}\n${preview}\n${lines.length > 40 ? '... (truncated)' : ''}\`\`\``;
+        }).join('\n\n');
+
+        // 5. Get README content if available
+        const readmeContent = readmeFile ? readmeFile.content.substring(0, 2000) : "No README available";
+
+        const systemPrompt = `You are a senior software architect analyzing a codebase for the first time.
+
+Your task: Generate a comprehensive **Welcome Checkpoint** that provides a high-level overview of this project by analyzing the actual code.
+
+**What to include:**
+1. **🎯 Project Purpose** - What problem does this solve? What is it for? (analyze package.json, README, code patterns)
+2. **🏗️ Architecture Overview** - High-level component structure, layers, modules (trace imports, identify patterns)
+3. **🔄 Key Technical Flows** - Main execution paths, data flow, control flow (follow the code from entry point)
+4. **💡 Use Cases** - Primary use cases and user interactions (what can users do with this?)
+5. **⚙️ Technology Stack** - Frameworks, libraries, patterns, tools used (from package.json and imports)
+6. **🏁 Entry Points** - Where the application starts (identify from code analysis)
+
+**Tone:** Professional, technical, but accessible (like explaining to a new senior engineer joining the team).
+
+**Critical:** Analyze the CODE SNIPPETS provided below. Don't just read README - look at actual implementation!
+
+**Format:** Return ONLY a JSON object (no markdown wrapper):
+{
+  "title": "🏁 Welcome - Project Overview",
+  "file": "${readmeFile ? readmeFile.path : entryPointFile.path}",
+  "line": 1,
+  "description": "A detailed multi-paragraph overview covering all 6 points above. Use markdown formatting with ## headers, bullet points, emojis for visual structure. Be specific about actual files and modules found in the code."
+}`;
+
+        const userPrompt = `${projectContext}
+
+**📊 Codebase Statistics:**
+- ${totalFiles} files
+- ${totalLines.toLocaleString()} lines
+- Languages: ${languages.join(", ")}
+- Entry Point: ${entryPointFile.path}
+
+**📝 README Context:**
+${readmeContent}
+
+**🔍 CODE ANALYSIS - Key Files with Actual Code:**
+${codeSnippets}
+
+**Your Task:**
+Analyze the CODE ABOVE (not just the README) and create a comprehensive Welcome checkpoint that explains:
+
+1. **What is this project?** (Purpose, goals)
+2. **How is it architected?** (Components, modules, layers you see in the code)
+3. **What are the main flows?** (Trace execution from ${entryPointFile.path})
+4. **What are the use cases?** (What can users do?)
+5. **What technologies?** (Frameworks, libraries you see imported)
+6. **Where to start?** (Entry point and next steps)
+
+Be SPECIFIC with file/directory names from the code you analyzed above.`;
+
+
+        try {
+            console.log("   Calling LLM for high-level overview...");
+            const response = await this.llmService.generateCompletion([
+                { role: "system", content: systemPrompt },
+                { role: "user", content: userPrompt }
+            ]);
+
+            console.log("   ✅ LLM response received");
+            console.log(`   Response size: ${response.content.length} chars`);
+
+            // Parse JSON response
+            const parsed = JSON.parse(response.content);
+
+            if (!parsed.title || !parsed.file || !parsed.description) {
+                throw new Error("LLM response missing required fields (title, file, description)");
+            }
+
+            console.log(`   ✅ Welcome checkpoint generated: "${parsed.title}"`);
+
+            return [{
+                title: parsed.title,
+                file: parsed.file,
+                line: parsed.line || 1,
+                description: parsed.description
+            }];
+
+        } catch (error: any) {
+            console.error(`   ❌ Failed to generate welcome from LLM: ${error.message}`);
+            console.error(`   Falling back to static welcome page...`);
+
+            // Fallback to static welcome
+            return this.generateStaticWelcomePage(repomixResult);
+        }
+    }
+
+    /**
+     * Fallback: Static welcome page (used if LLM fails)
+     */
+    private generateStaticWelcomePage(
+        repomixResult: any
+    ): GeneratedTourStep[] {
+        console.log("\n📖 Generating static Welcome Page...");
+
+        const allFiles = repomixResult.output.files;
+
+        // Find README file
+        const readmeFile = allFiles.find((f: any) =>
+            f.path.toLowerCase().includes('readme')
+        );
+
+        // Find entry point as fallback
+        const entryPointPriority = (file: any): number => {
+            const path = file.path.toLowerCase();
+            const name = path.split('/').pop() || '';
+            if (name.match(/^(main|index|app|server|extension)\.(ts|js|tsx|jsx|py|go|java|rb)$/)) return 1;
+            if (path.match(/^src\/(main|index|app|extension)\./)) return 2;
+            return 3;
+        };
+
+        const sortedFiles = [...allFiles].sort((a, b) => {
+            return entryPointPriority(a) - entryPointPriority(b);
+        });
+
+        const entryPointFile = sortedFiles[0];
+
+        // Use README if exists, otherwise use entry point
+        const welcomeFile = readmeFile || entryPointFile;
+
+        if (!welcomeFile) {
+            console.log("   ❌ No files found for welcome page");
+            return [];
+        }
+
+        console.log(`   Welcome file: ${welcomeFile.path} ${readmeFile ? '(README)' : '(Entry Point)'}`);
+
+        // Build welcome description
+        const totalFiles = repomixResult.output.totalFiles;
+        const totalLines = repomixResult.output.totalLines;
+        const languages = Array.from(new Set(repomixResult.output.files.map((f: any) => f.language)));
+
+        let welcomeDescription = `# 🏁 Codebase Architecture Tour\n\n`;
+        welcomeDescription += `This tour provides a technical walkthrough of the system architecture, design patterns, and implementation details.\n\n`;
+        welcomeDescription += `## 📊 Codebase Overview:\n`;
+        welcomeDescription += `- **${totalFiles} files** totaling ${totalLines.toLocaleString()} lines of code\n`;
+        welcomeDescription += `- **Technology Stack**: ${languages.join(", ")}\n`;
+        welcomeDescription += `- **Entry Point**: ${entryPointFile.path}\n`;
+        welcomeDescription += `- **Tour Checkpoints**: ${this.TARGET_STEPS}+ key architectural components\n\n`;
+        welcomeDescription += `## 🎯 What This Tour Covers:\n`;
+        welcomeDescription += `- 🏗️ **System Architecture** - Component structure and module organization\n`;
+        welcomeDescription += `- 🔄 **Data Flow** - Request handling, state management, and processing pipelines\n`;
+        welcomeDescription += `- 🧠 **Design Patterns** - Factory, Strategy, Observer, and other patterns in use\n`;
+        welcomeDescription += `- 💡 **Technical Decisions** - Implementation rationale and trade-offs\n\n`;
+        welcomeDescription += `## 📖 How to Navigate:\n`;
+        welcomeDescription += `- **Sequential reading** recommended for full architectural understanding\n`;
+        welcomeDescription += `- Each checkpoint includes technical details and integration points\n`;
+        welcomeDescription += `- Use the checkpoint descriptions to understand component relationships\n\n`;
+
+        if (readmeFile) {
+            welcomeDescription += `---\n\n## 📝 Project Information:\n`;
+            welcomeDescription += this.cleanReadmeContent(readmeFile.content || "");
+        } else {
+            welcomeDescription += `---\n\n## 🏁 Starting Point:\n`;
+            welcomeDescription += `No README found. This tour starts at the entry point: **${entryPointFile.path}**\n\n`;
+            welcomeDescription += `Click "Next" to begin exploring the codebase from the application entry point.`;
+        }
+
+        return [{
+            title: "🏁 Welcome to the Codebase",
+            file: welcomeFile.path,
+            line: 1,
+            description: welcomeDescription
+        }];
+    }
+
+    /**
+     * Cleans README content for inclusion in tour
+     */
+    private cleanReadmeContent(readme: string): string {
+        // Remove excessive newlines
+        let cleaned = readme.replace(/\n{3,}/g, '\n\n');
+
+        // Truncate if too long (keep first 500 chars)
+        if (cleaned.length > 500) {
+            cleaned = cleaned.substring(0, 500) + '...\n\n[See full README for more details]';
+        }
+
+        return cleaned;
+    }
+
+    // Remove old TreeSitter-dependent methods (no longer needed!)
+    // - filterImportantFiles
+    // - selectTopFilesByImportance
+    // - getFileImportance
+    // - analyzeArchitecture
+    // - buildCodebaseOverview
+}

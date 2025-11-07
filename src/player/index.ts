@@ -137,7 +137,7 @@ let controller: CommentController | null;
 
 export async function focusPlayer() {
   const currentThread = store.activeTour!.thread!;
-  showDocument(currentThread.uri, currentThread.range);
+  showDocument(currentThread.uri, currentThread.range || new Range(0, 0, 0, 0));
 }
 
 export async function startPlayer() {
@@ -247,8 +247,8 @@ async function renderCurrentStep() {
   let line = step.line
     ? step.line - 1
     : step.selection
-    ? step.selection.end.line - 1
-    : undefined;
+      ? step.selection.end.line - 1
+      : undefined;
 
   if (step.file && line === undefined) {
     const stepPattern = step.pattern || getActiveStepMarker();
@@ -399,7 +399,7 @@ async function renderCurrentStep() {
   if (step.commands) {
     for (const command of step.commands) {
       let name = command,
-      args: any[] = [];
+        args: any[] = [];
 
       if (command.includes("?")) {
         const parts = command.split("?");
@@ -450,16 +450,16 @@ export function registerPlayerModule(context: ExtensionContext) {
     () => [
       store.activeTour
         ? [
-            store.activeTour.step,
-            store.activeTour.tour.title,
-            store.activeTour.tour.steps.map(step => [
-              step.title,
-              step.description,
-              step.line,
-              step.directory,
-              step.view
-            ])
-          ]
+          store.activeTour.step,
+          store.activeTour.tour.title,
+          store.activeTour.tour.steps.map(step => [
+            step.title,
+            step.description,
+            step.line,
+            step.directory,
+            step.view
+          ])
+        ]
         : null
     ],
     () => {
