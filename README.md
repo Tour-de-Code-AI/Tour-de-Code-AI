@@ -12,7 +12,7 @@ CodeTour AI automatically generates comprehensive, mental-model-driven guided to
 
 ## 📦 Installation & Setup
 
-![Installation Setup](images/installtion_setup.gif)
+![Installation Setup](images/installation_setup_hd_speed.gif)
 
 ### Install from VS Code Marketplace
 
