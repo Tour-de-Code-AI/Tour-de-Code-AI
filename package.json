@@ -21,12 +21,26 @@
     "vscode": "^1.60.0"
   },
   "categories": [
-    "Other"
+    "Other",
+    "Education",
+    "Visualization"
   ],
   "keywords": [
-    "Collaboration",
-    "Sharing"
+    "code tour",
+    "onboarding",
+    "documentation",
+    "ai",
+    "llm",
+    "repomix",
+    "codebase analysis",
+    "learning",
+    "tutorial"
   ],
+  "galleryBanner": {
+    "color": "#1e1e1e",
+    "theme": "dark"
+  },
+  "qna": "marketplace",
   "extensionKind": [
     "workspace"
   ],
