@@ -3,18 +3,18 @@
   "displayName": "CodeTour AI",
   "description": "AI-powered code tours using Repomix analysis and LLMs. Generate comprehensive, narrative-driven codebase tours with mental model flow. Accelerate onboarding from weeks to hours.",
   "publisher": "saurabh-yergattikar",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "author": {
     "name": "Saurabh Yergattikar"
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/saurabh-yergattikar/codetour_ai"
+    "url": "https://github.com/code-tour-ai/codetour_ai"
   },
   "bugs": {
-    "url": "https://github.com/saurabh-yergattikar/codetour_ai/issues"
+    "url": "https://github.com/code-tour-ai/codetour_ai/issues"
   },
-  "homepage": "https://github.com/saurabh-yergattikar/codetour_ai#readme",
+  "homepage": "https://github.com/code-tour-ai/codetour_ai#readme",
   "license": "MIT",
   "icon": "images/icon.png",
   "engines": {
