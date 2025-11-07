@@ -14,6 +14,13 @@ CodeTour AI automatically generates comprehensive, mental-model-driven guided to
 
 ![Installation Setup](images/installation_setup_hd_speed.gif)
 
+---
+
+## 🎬 See It In Action
+
+![Code Tour Demo](images/code_tour_hd_speed.gif)
+
+
 ### Install from VS Code Marketplace
 
 1. Open VS Code Extensions (`Cmd+Shift+X` / `Ctrl+Shift+X`)
@@ -27,11 +34,6 @@ Or install via command:
 ext install saurabh-yergattikar.codetour-ai
 ```
 
----
-
-## 🎬 See It In Action
-
-![Code Tour Demo](images/code_tour_hd_speed.gif)
 
 Watch CodeTour AI analyze your codebase and generate a comprehensive, narrative-driven tour that explains:
 - **Project Architecture** - High-level component structure
