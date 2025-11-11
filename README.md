@@ -380,7 +380,7 @@ The AI-powered tour generation features are original contributions to the tour g
 **AI Features:**
 - **Copyright**: Copyright (c) 2024-2025 Saurabh Yergattikar
 - **License**: MIT License (same as original)
-- **Repository**: [github.com/code-tour-ai/tourdecode_ai](https://github.com/code-tour-ai/tourdecode_ai)
+- **Repository**: [github.com/Tour-de-Code-AI/Tour-de-Code-AI](https://github.com/Tour-de-Code-AI/Tour-de-Code-AI)
 
 ### Acknowledgments
 
@@ -395,9 +395,9 @@ Special thanks to:
 
 ## 🔗 Links
 
-- **📦 VS Code Marketplace**: [Install Tour de Code AI](https://marketplace.visualstudio.com/items?itemName=saurabh-yergattikar.tourdecode-ai)
-- **💻 GitHub Repository**: [code-tour-ai/tourdecode_ai](https://github.com/code-tour-ai/tourdecode_ai)
-- **🐛 Report Issues**: [GitHub Issues](https://github.com/code-tour-ai/tourdecode_ai/issues)
+- **📦 VS Code Marketplace**: [Install Tour de Code AI](https://marketplace.visualstudio.com/items?itemName=saurabh-yergattikar.codetour-ai)
+- **💻 GitHub Repository**: [Tour-de-Code-AI/Tour-de-Code-AI](https://github.com/Tour-de-Code-AI/Tour-de-Code-AI)
+- **🐛 Report Issues**: [GitHub Issues](https://github.com/Tour-de-Code-AI/Tour-de-Code-AI/issues)
 - **📖 Original CodeTour**: [microsoft/codetour](https://github.com/microsoft/codetour)
 - **📦 Repomix**: [Repomix Project](https://github.com/yamadashy/repomix)
 
@@ -434,8 +434,8 @@ A: Yes! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 ## 🌟 Show Your Support
 
 If Tour de Code AI helps you or your team:
-- ⭐ **Star** the [GitHub repository](https://github.com/code-tour-ai/tourdecode_ai)
-- 🎉 **Rate** the extension on [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=saurabh-yergattikar.tourdecode-ai)
+- ⭐ **Star** the [GitHub repository](https://github.com/Tour-de-Code-AI/Tour-de-Code-AI)
+- 🎉 **Rate** the extension on [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=saurabh-yergattikar.codetour-ai)
 - 💬 **Share** with your developer community
 - 🐛 **Report** bugs or request features
 

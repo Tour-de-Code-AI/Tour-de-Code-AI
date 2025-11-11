@@ -1,5 +1,5 @@
 {
-  "name": "tourdecode-ai",
+  "name": "codetour-ai",
   "displayName": "Tour de Code AI",
   "description": "AI-powered codebase tours using Repomix analysis and LLMs. Generate comprehensive, narrative-driven guided tours with mental model flow. Accelerate onboarding from weeks to hours.",
   "publisher": "saurabh-yergattikar",
@@ -9,12 +9,12 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/code-tour-ai/tourdecode_ai"
+    "url": "https://github.com/Tour-de-Code-AI/Tour-de-Code-AI"
   },
   "bugs": {
-    "url": "https://github.com/code-tour-ai/tourdecode_ai/issues"
+    "url": "https://github.com/Tour-de-Code-AI/Tour-de-Code-AI/issues"
   },
-  "homepage": "https://github.com/code-tour-ai/tourdecode_ai#readme",
+  "homepage": "https://github.com/Tour-de-Code-AI/Tour-de-Code-AI#readme",
   "license": "MIT",
   "icon": "images/icon.png",
   "engines": {
