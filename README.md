@@ -1,8 +1,8 @@
 # Tour de Code AI 🗺️✨
 
-[![VS Code Marketplace](https://img.shields.io/visual-studio-marketplace/v/saurabh-yergattikar.tourdecode-ai?style=for-the-badge&label=VS%20Code%20Marketplace&logo=visual-studio-code)](https://marketplace.visualstudio.com/items?itemName=saurabh-yergattikar.tourdecode-ai)
-[![Installs](https://img.shields.io/visual-studio-marketplace/i/saurabh-yergattikar.tourdecode-ai?style=for-the-badge)](https://marketplace.visualstudio.com/items?itemName=saurabh-yergattikar.tourdecode-ai)
-[![Rating](https://img.shields.io/visual-studio-marketplace/r/saurabh-yergattikar.tourdecode-ai?style=for-the-badge)](https://marketplace.visualstudio.com/items?itemName=saurabh-yergattikar.tourdecode-ai)
+[![VS Code Marketplace](https://img.shields.io/visual-studio-marketplace/v/saurabh-yergattikar.tourdecode-ai?style=for-the-badge&label=VS%20Code%20Marketplace&logo=visual-studio-code)](https://marketplace.visualstudio.com/items?itemName=saurabh-yergattikar.codetour-ai)
+[![Installs](https://img.shields.io/visual-studio-marketplace/i/saurabh-yergattikar.tourdecode-ai?style=for-the-badge)](https://marketplace.visualstudio.com/items?itemName=saurabh-yergattikar.codetour-ai)
+[![Rating](https://img.shields.io/visual-studio-marketplace/r/saurabh-yergattikar.tourdecode-ai?style=for-the-badge)](https://marketplace.visualstudio.com/items?itemName=saurabh-yergattikar.codetour-ai)
 
 **Transform codebase onboarding from weeks to hours with AI-powered, narrative-driven guided tours.**
 

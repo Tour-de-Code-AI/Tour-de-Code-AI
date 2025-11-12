@@ -1,9 +1,9 @@
 {
-  "name": "tourdecode-ai",
+  "name": "codetour-ai",
   "displayName": "Tour de Code AI",
   "description": "AI-powered codebase tours using Repomix analysis and LLMs. Generate comprehensive, narrative-driven guided tours with mental model flow. Accelerate onboarding from weeks to hours.",
   "publisher": "saurabh-yergattikar",
-  "version": "1.0.0",
+  "version": "1.1.2",
   "author": {
     "name": "Saurabh Yergattikar"
   },
