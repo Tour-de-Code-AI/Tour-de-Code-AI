@@ -102,6 +102,23 @@ export class LLMService {
         }
     }
 
+    /**
+     * OpenAI-compatible token limit field mapping.
+     *
+     * Some newer OpenAI models (e.g. gpt-5.x) reject `max_tokens` and require
+     * `max_completion_tokens` instead.
+     */
+    private getTokenLimitField(maxTokens: number): Record<string, number> {
+        const model = (this.config.model || "").trim().toLowerCase();
+
+        // Model-based mapping requested: gpt-5* => max_completion_tokens
+        if (model.startsWith("gpt-5")) {
+            return { max_completion_tokens: maxTokens };
+        }
+
+        return { max_tokens: maxTokens };
+    }
+
     private async callOpenAI(messages: LLMMessage[]): Promise<LLMResponse> {
         console.log("📡 Preparing OpenAI API request...");
         console.log(`   URL: ${this.config.apiUrl}`);
@@ -119,6 +136,11 @@ export class LLMService {
             console.warn(`   ⚠️ Input is very large (${estimatedTokens} tokens)! This might fail.`);
         }
 
+        const tokenLimit = 2000; // Reduced from 4096 to stay under token limits
+        const tokenLimitField = this.getTokenLimitField(tokenLimit);
+        const tokenLimitKey = Object.keys(tokenLimitField)[0];
+        console.log(`   Token limit: ${tokenLimit} via ${tokenLimitKey}`);
+
         const requestConfig: AxiosRequestConfig = {
             method: "POST",
             url: this.config.apiUrl,
@@ -130,7 +152,7 @@ export class LLMService {
                 model: this.config.model,
                 messages: messages,
                 temperature: 0.7,
-                max_tokens: 2000  // Reduced from 4096 to stay under token limits
+                ...tokenLimitField
             },
             timeout: 120000, // 2 minute timeout
             validateStatus: () => true // Don't throw on any status, we'll handle it
@@ -154,12 +176,23 @@ export class LLMService {
                     const error = response.data.error;
                     errorMessage = error.message || errorMessage;
 
+                    // Provide a targeted hint for the common gpt-5.x migration error.
+                    const msg = String(error.message || "");
+                    const unsupportedMaxTokens =
+                        msg.includes("Unsupported parameter: 'max_tokens'") ||
+                        msg.includes("max_tokens is not supported") ||
+                        msg.includes("Use 'max_completion_tokens' instead");
+
                     // Specific error handling
                     if (response.status === 400) {
                         if (error.code === 'context_length_exceeded') {
                             errorMessage = `Input is too long (exceeds model context limit). Try analyzing fewer files.`;
                         } else if (error.type === 'invalid_request_error') {
-                            errorMessage = `Invalid request: ${error.message}`;
+                            if (unsupportedMaxTokens) {
+                                errorMessage = `Invalid request: ${error.message} (This usually means the selected model requires 'max_completion_tokens' instead of 'max_tokens'. Tour de Code AI will map this automatically for models starting with 'gpt-5'.)`;
+                            } else {
+                                errorMessage = `Invalid request: ${error.message}`;
+                            }
                         } else {
                             errorMessage = `Bad request (400): ${error.message || 'Check your model name and API settings'}`;
                         }
@@ -232,6 +265,7 @@ export class LLMService {
 
     private async callCustomAPI(messages: LLMMessage[]): Promise<LLMResponse> {
         // Generic OpenAI-compatible API call for custom providers
+        const tokenLimit = 4096;
         const requestConfig: AxiosRequestConfig = {
             method: "POST",
             url: this.config.apiUrl,
@@ -243,7 +277,7 @@ export class LLMService {
                 model: this.config.model,
                 messages: messages,
                 temperature: 0.7,
-                max_tokens: 4096
+                ...this.getTokenLimitField(tokenLimit)
             }
         };
 
@@ -444,4 +478,3 @@ Return ONLY a valid JSON array of 35-60+ steps, no additional text or markdown.`
         return response.content;
     }
 }
-

@@ -93,7 +93,7 @@
         "tourdecode.llm.model": {
           "type": "string",
           "default": "gpt-4o-mini",
-          "description": "LLM model to use. Recommended: 'gpt-4o-mini' (fast + cheap), 'gpt-4-turbo-preview' (best quality), 'claude-3-5-sonnet-20241022' (balanced)"
+          "description": "LLM model to use. Recommended: 'gpt-4o-mini' (fast + cheap), 'gpt-4o' (best quality), 'gpt-5.2' (newer OpenAI model), 'claude-3-5-sonnet-20241022' (balanced). Note: for models starting with 'gpt-5', the extension uses 'max_completion_tokens' instead of 'max_tokens'."
         },
         "tourdecode.llm.provider": {
           "type": "string",

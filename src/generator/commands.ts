@@ -378,14 +378,14 @@ function getSettingsWebviewContent(
             
             <div class="form-group">
                 <label for="apiUrl">API Endpoint URL</label>
-                <div class="description">API endpoint (default works for most cases)</div>
+                <div class="description">API endpoint (default works for most cases). For OpenAI, this extension uses the Chat Completions compatible format.</div>
                 <input type="text" id="apiUrl" name="apiUrl" value="${apiUrl}" placeholder="https://api.openai.com/v1/chat/completions">
             </div>
             
             <div class="form-group">
                 <label for="model">Model Name</label>
-                <div class="description">LLM model to use (e.g., <code>gpt-4</code>, <code>gpt-3.5-turbo</code>, <code>claude-3-opus-20240229</code>)</div>
-                <input type="text" id="model" name="model" value="${model}" placeholder="gpt-4" required>
+                <div class="description">LLM model to use (e.g., <code>gpt-4o-mini</code>, <code>gpt-4o</code>, <code>gpt-5.2</code>, <code>claude-3-opus-20240229</code>). Note: for models starting with <code>gpt-5</code>, Tour de Code AI automatically uses <code>max_completion_tokens</code> instead of <code>max_tokens</code>.</div>
+                <input type="text" id="model" name="model" value="${model}" placeholder="gpt-4o-mini" required>
             </div>
             
             <div class="status-message" id="statusMessage"></div>
@@ -465,4 +465,3 @@ function getSettingsWebviewContent(
 </body>
 </html>`;
 }
-

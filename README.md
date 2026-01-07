@@ -160,6 +160,8 @@ Open VS Code and run:
    - `gpt-4o-mini` - Fast, affordable ($0.15/1M tokens)
    - `gpt-4o` - Best quality ($5/1M tokens)
 
+**gpt-5.x note:** If you use a model starting with `gpt-5` (for example `gpt-5.2`), OpenAI requires `max_completion_tokens` instead of `max_tokens`. Tour de Code AI handles this automatically when building the request.
+
 #### Anthropic Claude
 1. Sign up at [console.anthropic.com](https://console.anthropic.com)
 2. Generate API key from account settings
