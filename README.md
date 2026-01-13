@@ -6,6 +6,8 @@
 
 **Transform codebase onboarding from weeks to hours with AI-powered, narrative-driven guided tours.**
 
+> **Note:** Not affiliated with or endorsed by CodeTour.
+
 Tour de Code AI automatically generates comprehensive, mental-model-driven guided tours of any codebase using Repomix analysis and Large Language Models. Perfect for enterprise teams, open-source projects, and developers who want to accelerate knowledge transfer.
 
 ---
