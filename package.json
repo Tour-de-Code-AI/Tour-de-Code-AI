@@ -3,7 +3,7 @@
   "displayName": "Tour de Code AI – Repo Walkthroughs",
   "description": "AI-powered codebase tours using Repomix analysis and LLMs. Generate comprehensive, narrative-driven guided tours with mental model flow. Accelerate onboarding from weeks to hours. Not affiliated with or endorsed by CodeTour.",
   "publisher": "saurabh-yergattikar",
-  "version": "1.1.4",
+  "version": "1.1.5",
   "author": {
     "name": "Saurabh Yergattikar"
   },
